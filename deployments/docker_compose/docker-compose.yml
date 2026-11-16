@@ -1,0 +1,198 @@
+services:
+  # --- Main Application Service ---
+  aac-authentik:
+    image: "ghcr.io/goauthentik/server:2026.8.5"
+    container_name: "aac-authentik"
+    hostname: "auth"
+    restart: "always"
+
+    command:
+      - "server"
+
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: "auth.example.com"
+      PGID: "1000"
+      AUTHENTIK_EMAIL__USE_TLS: "true"
+      PUID: "1000"
+      AUTHENTIK_EMAIL__PORT: "465"
+      AUTHENTIK_EMAIL__FROM: "${AUTHENTIK_EMAIL__FROM:?set AUTHENTIK_EMAIL__FROM in .env (see .env.example)}"
+      AUTHENTIK_EMAIL__HOST: "auth.example.com"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "true"
+      AUTHENTIK_EMAIL__USERNAME: "${AUTHENTIK_EMAIL__USERNAME:?set AUTHENTIK_EMAIL__USERNAME in .env (see .env.example)}"
+      AUTHENTIK_POSTGRESQL__USER: "authentik"
+      AUTHENTIK_EMAIL__USE_SSL: "false"
+      AUTHENTIK_EMAIL__TIMEOUT: "10"
+      AUTHENTIK_REDIS__HOST: "auth.example.com"
+      AUTHENTIK_POSTGRESQL__NAME: "authentik"
+      TZ: "Europe/Berlin"
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env (see .env.example)}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRESQL__PASSWORD:?set AUTHENTIK_POSTGRESQL__PASSWORD in .env (see .env.example)}"
+      AUTHENTIK_EMAIL__PASSWORD: "${AUTHENTIK_EMAIL__PASSWORD:?set AUTHENTIK_EMAIL__PASSWORD in .env (see .env.example)}"
+      HOMEPAGE_WIDGET_KEY: "${HOMEPAGE_WIDGET_KEY:?set HOMEPAGE_WIDGET_KEY in .env (see .env.example)}"
+      POSTGRES_USER: "authentik"
+      POSTGRES_DB: "authentik"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}"
+    ports:
+      - "8879:9000/tcp"
+      - "8880:9443/tcp"
+
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "/export/docker/aac-authentik/media:/media"
+      - "/export/docker/aac-authentik/custom-templates:/templates"
+
+    networks:
+      - exposed
+      - interconnect
+      - secured
+      - stack_internal
+
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.aac-authentik.rule: "Host(`auth.example.com`)"
+      traefik.http.routers.aac-authentik.entrypoints: "websecure"
+      traefik.http.routers.aac-authentik.tls: "true"
+      traefik.http.routers.aac-authentik.tls.certresolver: "ionos"
+      traefik.docker.network: "services-secured"
+      traefik.http.services.aac-authentik.loadbalancer.server.port: "9000"
+      traefik.http.services.aac-authentik.loadbalancer.server.scheme: "http"
+      auto-dns.createWildcard.aac-authentik: "false"
+      auto-dns.customDNS.aac-authentik: "true"
+      auto-dns.customDOMAIN.aac-authentik: "example.com"
+      auto-dns.customHost.aac-authentik: "auth"
+      homepage.group: "Management"
+      homepage.name: "Authentik"
+      homepage.href: "https://auth.example.com"
+      homepage.icon: "authentik.png"
+      homepage.description: "SSO & IAM Platform"
+
+
+    depends_on:
+      aac-authentik-db:
+        condition: service_healthy
+      aac-authentik-redis:
+        condition: service_healthy
+      aac-authentik-worker:
+        condition: service_started
+
+
+  # --- Service Dependencies (Sidecars) ---
+  aac-authentik-db:
+    image: "postgres:18"
+    container_name: "aac-authentik-db"
+    restart: "always"
+    
+
+    env_file:
+      - .env
+    environment:
+      PGID: "1000"
+      PUID: "1000"
+      TZ: "Europe/Berlin"
+
+
+    volumes:
+      - "/export/docker/aac-authentik/db:/var/lib/postgresql"
+
+    networks:
+      - stack_internal
+
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-postgres}\" -d \"$${POSTGRES_DB:-postgres}\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+
+  aac-authentik-redis:
+    image: "redis:8.6.1"
+    container_name: "aac-authentik-redis"
+    restart: "always"
+    
+
+    env_file:
+      - .env
+    environment:
+      PGID: "1000"
+      PUID: "1000"
+      TZ: "Europe/Berlin"
+
+
+    volumes:
+      - "/export/docker/aac-authentik/redis-data:/data"
+
+    networks:
+      - stack_internal
+
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+
+  aac-authentik-worker:
+    image: "ghcr.io/goauthentik/server:2026.8.5"
+    container_name: "aac-authentik-worker"
+    restart: "always"
+    
+    command:
+      - "worker"
+
+    env_file:
+      - .env
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: "auth.example.com"
+      PGID: "1000"
+      AUTHENTIK_EMAIL__USE_TLS: "true"
+      PUID: "1000"
+      AUTHENTIK_EMAIL__PORT: "465"
+      AUTHENTIK_EMAIL__FROM: "${AUTHENTIK_EMAIL__FROM:?set AUTHENTIK_EMAIL__FROM in .env (see .env.example)}"
+      AUTHENTIK_EMAIL__HOST: "auth.example.com"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "true"
+      AUTHENTIK_EMAIL__USERNAME: "${AUTHENTIK_EMAIL__USERNAME:?set AUTHENTIK_EMAIL__USERNAME in .env (see .env.example)}"
+      AUTHENTIK_POSTGRESQL__USER: "authentik"
+      AUTHENTIK_EMAIL__USE_SSL: "false"
+      AUTHENTIK_EMAIL__TIMEOUT: "10"
+      AUTHENTIK_REDIS__HOST: "auth.example.com"
+      AUTHENTIK_POSTGRESQL__NAME: "authentik"
+      TZ: "Europe/Berlin"
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:?set AUTHENTIK_SECRET_KEY in .env (see .env.example)}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRESQL__PASSWORD:?set AUTHENTIK_POSTGRESQL__PASSWORD in .env (see .env.example)}"
+      AUTHENTIK_EMAIL__PASSWORD: "${AUTHENTIK_EMAIL__PASSWORD:?set AUTHENTIK_EMAIL__PASSWORD in .env (see .env.example)}"
+    volumes:
+      - "/export/docker/aac-authentik/media:/media"
+      - "/export/docker/aac-authentik/certs:/certs"
+      - "/export/docker/aac-authentik/custom-templates:/templates"
+      - "/export/docker/aac-authentik/docker_sock:/var/run/docker.sock"
+
+    networks:
+      - stack_internal
+
+
+
+    user: 0:0
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    mem_limit: 4g
+
+
+
+networks:
+  secured:
+    name: "services-secured"
+    external: true
+  exposed:
+    name: "services-exposed"
+    external: true
+  interconnect:
+    name: "docker-default"
+    external: true
+  stack_internal:
+    name: "aac-authentik_stack_internal"
+    driver: "bridge"
+

@@ -1,0 +1,211 @@
+service:
+  name: aac-authentik
+  image_repo: ghcr.io/goauthentik/server
+  image_tag: 2026.8.5
+  description: SSO & IAM Platform
+  icon: authentik.png
+  category: Management
+  stage: prod
+  hostname: auth
+ports:
+- name: web
+  port: 9000
+  external_port: 8879
+  protocol: TCP
+- name: websecure
+  port: 9443
+  external_port: 8880
+  protocol: TCP
+config:
+  domain_name: example.com
+  generate_hostname: false
+  integrations:
+    homepage:
+      enabled: true
+    autodns:
+      enabled: true
+    traefik:
+      enabled: true
+      cert_resolver: ionos
+      entrypoint: websecure
+  schema_version: 2
+stage_overrides:
+  prod:
+    config:
+      generate_hostname: false
+    service:
+      hostname: auth
+secrets:
+  AUTHENTIK_SECRET_KEY: CHANGE_ME
+  AUTHENTIK_POSTGRESQL__PASSWORD: CHANGE_ME
+  AUTHENTIK_EMAIL__PASSWORD: CHANGE_ME
+  HOMEPAGE_WIDGET_KEY: CHANGE_ME
+  POSTGRES_USER: authentik
+  POSTGRES_DB: authentik
+  POSTGRES_PASSWORD: CHANGE_ME
+volumes:
+  media:
+    description: Storage for media files
+  custom-templates:
+    description: Custom templates for Authentik
+  redis-data:
+    description: Data for authentik-redis
+  certs:
+    description: Storage for certificates for the worker
+  docker_sock:
+    type: bind
+    source: /var/run/docker.sock
+  db_data:
+    description: Data for authentik-db (PostgreSQL)
+deployment_strategy:
+  main:
+    enabled: true
+    target_stage: prod
+  dev:
+    enabled: true
+    target_stage: dev
+  test:
+    enabled: false
+    target_stage: test
+  ansible-dev:
+    enabled: true
+    target_stage: dev
+  iac-dev:
+    enabled: true
+    target_stage: dev
+  template-dev:
+    enabled: true
+    target_stage: dev
+deployments:
+  docker_compose:
+    restart_policy: always
+    host_base_path: /export/docker
+    command:
+    - server
+    depends_on:
+    - service: '{{ dependencies.database.name }}'
+      condition: service_healthy
+    - service: '{{ dependencies.redis.name }}'
+      condition: service_healthy
+    volumes:
+    - docker_sock:/var/run/docker.sock
+    - media:/media
+    - custom-templates:/templates
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: '{{ vars.AUTHENTIK_POSTGRESQL__HOST }}'
+      PGID: '{{ vars.PGID }}'
+      AUTHENTIK_EMAIL__USE_TLS: '{{ vars.AUTHENTIK_EMAIL__USE_TLS }}'
+      PUID: '{{ vars.PUID }}'
+      AUTHENTIK_EMAIL__PORT: '{{ vars.AUTHENTIK_EMAIL__PORT }}'
+      AUTHENTIK_EMAIL__FROM: '{{ vars.AUTHENTIK_EMAIL__FROM }}'
+      AUTHENTIK_EMAIL__HOST: '{{ vars.AUTHENTIK_EMAIL__HOST }}'
+      AUTHENTIK_ERROR_REPORTING__ENABLED: '{{ vars.AUTHENTIK_ERROR_REPORTING__ENABLED
+        }}'
+      AUTHENTIK_EMAIL__USERNAME: '{{ vars.AUTHENTIK_EMAIL__USERNAME }}'
+      AUTHENTIK_POSTGRESQL__USER: '{{ vars.AUTHENTIK_POSTGRESQL__USER }}'
+      AUTHENTIK_EMAIL__USE_SSL: '{{ vars.AUTHENTIK_EMAIL__USE_SSL }}'
+      AUTHENTIK_EMAIL__TIMEOUT: '{{ vars.AUTHENTIK_EMAIL__TIMEOUT }}'
+      AUTHENTIK_REDIS__HOST: '{{ vars.AUTHENTIK_REDIS__HOST }}'
+      AUTHENTIK_POSTGRESQL__NAME: '{{ vars.AUTHENTIK_POSTGRESQL__NAME }}'
+      TZ: '{{ vars.TZ }}'
+      AUTHENTIK_SECRET_KEY: '{{ secrets.AUTHENTIK_SECRET_KEY }}'
+      AUTHENTIK_POSTGRESQL__PASSWORD: '{{ secrets.AUTHENTIK_POSTGRESQL__PASSWORD }}'
+      AUTHENTIK_EMAIL__PASSWORD: '{{ secrets.AUTHENTIK_EMAIL__PASSWORD }}'
+      HOMEPAGE_WIDGET_KEY: '{{ secrets.HOMEPAGE_WIDGET_KEY }}'
+      POSTGRES_USER: '{{ secrets.POSTGRES_USER }}'
+      POSTGRES_DB: '{{ secrets.POSTGRES_DB }}'
+      POSTGRES_PASSWORD: '{{ secrets.POSTGRES_PASSWORD }}'
+dependencies:
+  database:
+    import: catalog/postgres.yml
+    overrides:
+      name: aac-authentik-db
+      image_tag: 18
+      volumes:
+        db:
+          target: /var/lib/postgresql
+          description: Persistent storage for db
+      environment:
+        PGID: '{{ vars.PGID }}'
+        PUID: '{{ vars.PUID }}'
+        TZ: '{{ vars.TZ }}'
+  redis:
+    import: catalog/redis.yml
+    overrides:
+      name: aac-authentik-redis
+      image_tag: 8.6.1
+      volumes:
+        redis-data:
+          target: /data
+          description: Persistent storage for redis-data
+      environment:
+        PGID: '{{ vars.PGID }}'
+        PUID: '{{ vars.PUID }}'
+        TZ: '{{ vars.TZ }}'
+  worker:
+    name: aac-authentik-worker
+    image_repo: '{{ service.image_repo }}'
+    image_tag: '{{ service.image_tag }}'
+    restart_policy: always
+    command:
+    - worker
+    user: 0:0
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    mem_limit: 4g
+    depends_on:
+    - service: '{{ dependencies.database.name }}'
+      condition: service_healthy
+    - service: '{{ dependencies.redis.name }}'
+      condition: service_healthy
+    volumes:
+      media:
+        target: /media
+        description: Persistent storage for media
+      certs:
+        target: /certs
+        description: Persistent storage for certs
+      custom-templates:
+        target: /templates
+        description: Persistent storage for custom-templates
+      docker_sock:
+        target: /var/run/docker.sock
+        description: Persistent storage for docker_sock
+    environment:
+      AUTHENTIK_POSTGRESQL__HOST: '{{ vars.AUTHENTIK_POSTGRESQL__HOST }}'
+      PGID: '{{ vars.PGID }}'
+      AUTHENTIK_EMAIL__USE_TLS: '{{ vars.AUTHENTIK_EMAIL__USE_TLS }}'
+      PUID: '{{ vars.PUID }}'
+      AUTHENTIK_EMAIL__PORT: '{{ vars.AUTHENTIK_EMAIL__PORT }}'
+      AUTHENTIK_EMAIL__FROM: '{{ vars.AUTHENTIK_EMAIL__FROM }}'
+      AUTHENTIK_EMAIL__HOST: '{{ vars.AUTHENTIK_EMAIL__HOST }}'
+      AUTHENTIK_ERROR_REPORTING__ENABLED: '{{ vars.AUTHENTIK_ERROR_REPORTING__ENABLED
+        }}'
+      AUTHENTIK_EMAIL__USERNAME: '{{ vars.AUTHENTIK_EMAIL__USERNAME }}'
+      AUTHENTIK_POSTGRESQL__USER: '{{ vars.AUTHENTIK_POSTGRESQL__USER }}'
+      AUTHENTIK_EMAIL__USE_SSL: '{{ vars.AUTHENTIK_EMAIL__USE_SSL }}'
+      AUTHENTIK_EMAIL__TIMEOUT: '{{ vars.AUTHENTIK_EMAIL__TIMEOUT }}'
+      AUTHENTIK_REDIS__HOST: '{{ vars.AUTHENTIK_REDIS__HOST }}'
+      AUTHENTIK_POSTGRESQL__NAME: '{{ vars.AUTHENTIK_POSTGRESQL__NAME }}'
+      TZ: '{{ vars.TZ }}'
+      AUTHENTIK_SECRET_KEY: '{{ secrets.AUTHENTIK_SECRET_KEY }}'
+      AUTHENTIK_POSTGRESQL__PASSWORD: '{{ secrets.AUTHENTIK_POSTGRESQL__PASSWORD }}'
+      AUTHENTIK_EMAIL__PASSWORD: '{{ secrets.AUTHENTIK_EMAIL__PASSWORD }}'
+vars:
+  AUTHENTIK_POSTGRESQL__HOST: auth.example.com
+  PGID: '1000'
+  AUTHENTIK_EMAIL__USE_TLS: 'true'
+  PUID: '1000'
+  AUTHENTIK_EMAIL__PORT: '465'
+  AUTHENTIK_EMAIL__FROM: CHANGE_ME
+  AUTHENTIK_EMAIL__HOST: auth.example.com
+  AUTHENTIK_ERROR_REPORTING__ENABLED: 'true'
+  AUTHENTIK_EMAIL__USERNAME: CHANGE_ME
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_EMAIL__USE_SSL: 'false'
+  AUTHENTIK_EMAIL__TIMEOUT: '10'
+  AUTHENTIK_REDIS__HOST: auth.example.com
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  TZ: Europe/Berlin
